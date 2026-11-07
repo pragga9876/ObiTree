@@ -1,0 +1,26 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Database & Uploads
+*.db
+*.sqlite3
+obitree.db
+uploads/
+backend/uploads/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+backend/venv/
+
+# Node
+node_modules/
+dist/
+npm-debug.log*
+
+# System
+.DS_Store

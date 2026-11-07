@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import UploadForm from '../components/UploadForm';
 import WalletButton from '../components/WalletButton';
+import AttestationCard from '../components/AttestationCard';
 import { checkHealth } from '../lib/api';
 
 export default function Dashboard() {
   const [apiStatus, setApiStatus] = useState(null);
+  const [currentDocument, setCurrentDocument] = useState(null);
 
   useEffect(() => {
     checkHealth()
@@ -12,10 +14,15 @@ export default function Dashboard() {
       .catch((err) => setApiStatus({ status: 'error', message: err.message }));
   }, []);
 
+  const handleUploadSuccess = (data) => {
+    setCurrentDocument(data);
+  };
+
   return (
     <div className="dashboard-container">
       <header className="dashboard-header">
         <h1 className="brand-title">PaperRoots</h1>
+        <p className="subtitle">Historical Document Provenance & Attestation on Solana</p>
         <div className="system-status-bar">
           <span
             className={`status-dot ${apiStatus?.status === 'ok' ? 'dot-online' : 'dot-offline'}`}
@@ -29,12 +36,19 @@ export default function Dashboard() {
 
       <main className="dashboard-content">
         <section className="section-card">
-          <UploadForm />
+          <WalletButton />
         </section>
 
         <section className="section-card">
-          <WalletButton />
+          <h3 className="section-title">Upload Historical Document</h3>
+          <UploadForm onUploadSuccess={handleUploadSuccess} />
         </section>
+
+        {currentDocument && (
+          <section className="section-card attestation-section">
+            <AttestationCard documentData={currentDocument} />
+          </section>
+        )}
       </main>
     </div>
   );
