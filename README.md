@@ -1,258 +1,212 @@
-# PaperRoots (ObiTree) 📜🌳
+# Orbitree
 
-PaperRoots is an AI-powered decentralized archival and historical knowledge attestation platform. It digitizes historical newspaper clippings, obituaries, and memorial records, extracts verified genealogical relationships using multimodal AI, deterministically canonicalizes the structured claims, and immutably anchors them onto the **Solana blockchain** via standard Memo transactions.
+**The Family Chronicle.** Orbitree reads old obituaries and memorial notices, reconstructs the family tree across independent clippings, and seals every contribution on Solana — so a family record cannot be quietly rewritten.
+
+Orbitree was built for the Solana hackathon. It is a newspaper, an archive and a ledger at once: the interface is set like a vintage memorial supplement, while the data model treats every uploaded page as an independently witnessed block.
 
 ---
 
-## 🚀 Architecture & Vertical Slice Workflow
+## What it does
+
+1. A contributor uploads a photograph, scan or screenshot of an obituary.
+2. The backend runs OpenCV/Tesseract OCR and Gemini multimodal structured extraction, then builds a deterministic canonical record of events and family claims.
+3. Two SHA-256 hashes are produced: the **file hash** of the uploaded bytes and the **record hash** of the canonical JSON.
+4. The contributor signs an `ORBITREE|1` memo containing both hashes and the hash of the previous sealed record, and broadcasts it to Solana Devnet.
+5. The backend verifies the memo against the RPC, records the wallet and transaction signature, and marks the clipping sealed.
+6. Any other contributor can open the shared chronicle link, connect a different wallet, and file another clipping. Its memo chains to the previous record hash.
+7. Orbitree merges the clippings into one family graph, marks agreement as **corroborated**, preserves contradictions instead of overwriting them, and shows the evidence, wallet and transaction behind every edge.
+
+> Verification/arbitration of which conflicting account is "correct" is intentionally out of scope for this build. Both readings survive in the record.
+
+---
+
+## Two contributors, one chronicle
+
+- **Contributor A** uploads the first clipping. A memorial project is created automatically (`The <Name> Family Chronicle`) with a shareable link: `/#/memorial/<project-id>`. This is the genesis block.
+- **Contributor B** opens the shared link from any wallet and adds an independent clipping to the same project, without needing edit access.
+- Both contributions are sealed separately and chained: each memo's `previous_hash` points at the prior sealed record hash.
+- The chronicle page shows both contributor wallets, the merged tree, the ledger chain and an editor's reasoning panel explaining why the tree looks the way it does.
+
+`POST /api/documents` without a `project_id` creates a new chronicle. Passing `project_id` appends to an existing one.
+
+---
+
+## Architecture
 
 ```text
-Upload Document (PDF / Image)
+Upload (PDF / image)
       ↓
-File SHA-256 Checksum (Identifies exact document bytes)
+SHA-256(file bytes)
       ↓
-Image Preprocessing (OpenCV) & OCR (Tesseract)
+OpenCV preprocessing + Tesseract OCR
       ↓
-AI Genealogical Extraction (Gemini Structured Output)
+Gemini structured extraction (offline regex fallback if no API key)
       ↓
-Deterministic Canonical Record Construction
+Deterministic canonical record  →  SHA-256(canonical JSON)
       ↓
-Record SHA-256 Checksum (Identifies canonical knowledge graph)
+ORBITREE|1 memo with previous_hash
       ↓
-PAPERROOTS|1 Memo Payload Construction
+Contributor signs with Phantom / Solflare on Solana Devnet
       ↓
-Contributor Signs via Solana Browser Wallet (Phantom / Solflare)
-      ↓
-Broadcast to Solana Devnet
-      ↓
-Independent Solana RPC Verification & SQLite Storage
+RPC verification → SQLite storage → merged graph + reasoning
 ```
 
----
+The frontend has no router dependency. It uses hash routes:
 
-## 📋 Prerequisites
-
-Before running the application, make sure you have the following installed:
-
-1. **Python 3.10+**
-2. **Node.js 18+** & **npm**
-3. **Tesseract OCR Engine** (for offline optical character recognition):
-   - **Ubuntu/Debian:**
-     ```bash
-     sudo apt-get update && sudo apt-get install -y tesseract-ocr
-     ```
-   - **macOS (Homebrew):**
-     ```bash
-     brew install tesseract
-     ```
-   - **Windows:** Download and install from [UB-Mannheim Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki).
-4. **Solana Browser Wallet Extension** (Required for on-chain attestation):
-   - Install **[Phantom Wallet](https://phantom.app/)** or **[Solflare Wallet](https://solflare.com/)** browser extension.
+- `/` — front page, upload, archive
+- `/#/memorial/<project-id>` — shared chronicle
 
 ---
 
-## 👛 Solana Wallet Setup (Devnet)
+## Prerequisites
 
-To sign and attest records on the Solana Devnet, configure your wallet extension as follows:
-
-### 1. Install & Set Up Phantom / Solflare
-- Install the [Phantom Browser Extension](https://phantom.app/).
-- Create a new wallet or import an existing recovery phrase.
-
-### 2. Switch Wallet Network to Solana Devnet
-1. Open the Phantom wallet extension.
-2. Click the **Settings (gear icon)** at the bottom-right.
-3. Select **Developer Settings**.
-4. Enable **Testnet Mode** (or click **Change Network**).
-5. Select **Solana Devnet**.
-
-### 3. Obtain Free Devnet Test SOL (For Gas Fees)
-Solana transactions require a tiny gas fee (~`0.000005 SOL`). If your wallet balance is `0 SOL`, Phantom disables the **Approve** button in the popup.
-
-To fund your Devnet wallet:
-- Visit the official faucet: **[https://faucet.solana.com/](https://faucet.solana.com/)**
-- Paste your wallet address and request **1 Devnet SOL**.
-- *Or use the Solana CLI*:
-  ```bash
-  solana airdrop 1 <YOUR_WALLET_ADDRESS> --url devnet
-  ```
-
-> 💡 **Tip:** PaperRoots also includes a built-in **"Demo Attest (Instant)"** button in the UI, allowing you to simulate and test verified attestations immediately even before faucet funding arrives.
+1. Python 3.10+
+2. Node.js 18+ and npm
+3. Tesseract OCR
+   - Ubuntu/Debian: `sudo apt-get update && sudo apt-get install -y tesseract-ocr`
+   - macOS: `brew install tesseract`
+   - Windows: [UB-Mannheim Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki)
+4. A Solana wallet extension (Phantom or Solflare), set to Devnet
 
 ---
 
-## 🛠️ Backend Setup (FastAPI)
+## Backend setup
 
-### 1. Navigate to the backend directory
 ```bash
 cd backend
-```
-
-### 2. Create and activate a Python virtual environment
-```bash
 python3 -m venv venv
-source venv/bin/activate
-# On Windows: venv\Scripts\activate
-```
-
-### 3. Install Python dependencies
-```bash
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-### 4. Configure environment variables
-Create a `.env` file in the `backend/` directory:
-```bash
 cp .env.example .env
 ```
 
-Edit `backend/.env` with your settings:
-```env
-# Google Gemini API key (Get one from https://aistudio.google.com/)
-GEMINI_API_KEY=your_gemini_api_key_here
+Configure `backend/.env`:
 
-# Solana Devnet RPC
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
 SOLANA_NETWORK=devnet
 SOLANA_RPC_URL=https://api.devnet.solana.com
 ```
 
-> **Note:** If `GEMINI_API_KEY` is omitted, the backend automatically uses a deterministic regex/heuristic fallback extractor.
+If `GEMINI_API_KEY` is missing or exhausted, extraction falls back to a deterministic heuristic parser so the demo still works.
 
-### 5. Start the backend server
+Start the server:
+
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
-- API Base URL: `http://localhost:8000`
-- Interactive API Docs (Swagger): `http://localhost:8000/docs`
-- Health check: `http://localhost:8000/health`
+
+- API: `http://localhost:8000`
+- Swagger: `http://localhost:8000/docs`
+- Health: `http://localhost:8000/api/health`
 
 ---
 
-## 💻 Frontend Setup (React + Vite)
+## Frontend setup
 
-### 1. Open a new terminal and navigate to the frontend directory
 ```bash
 cd frontend
-```
-
-### 2. Install Node dependencies
-```bash
 npm install
-```
-
-### 3. Start the Vite development server
-```bash
 npm run dev
 ```
-- Frontend application URL: `http://localhost:5173`
+
+Open `http://localhost:5173`.
+
+The frontend reads `VITE_API_URL` if set; otherwise it uses `http://localhost:8000`.
 
 ---
 
-## 🖥️ Using the Application
+## Wallet and Devnet setup
 
-1. **Connect Wallet**:
-   - Open `http://localhost:5173` in your browser.
-   - Click **Select Wallet** in the top navigation bar and select **Phantom** (or your installed Solana wallet). Ensure the network is set to Devnet.
-2. **Upload a Memorial Document**:
-   - Drag and drop or browse to select an obituary or historical document image (`.png`, `.jpg`, `.pdf`).
-3. **Review AI Extraction**:
-   - PaperRoots runs OCR and Gemini structured information extraction.
-   - The default **Final Extracted Information (JSON)** tab displays the exact structured event details and family relationships:
-     ```json
-     [
-         {
-             "event": "Chautha & Uthala",
-             "event_address": "7, Mayfair Road, Kolkata - 700019",
-             "event_date": "7.11.2026",
-             "event_venue": "PUNJAB BHAWAN",
-             "related_person": "Bhawna (Bobby)",
-             "relationship_type": "Daughter",
-             "subject": "Veena Nayar"
-         },
-         ...
-     ]
-     ```
-   - Explore other tabs: **Canonical Record**, **Claims Graph**, **Solana Memo**, and **Raw OCR Text**.
-4. **Sign & Attest on Solana**:
-   - Click **Sign & Attest on Devnet**.
-   - Your wallet extension will prompt you to approve the transaction containing the `PAPERROOTS|1` Memo instruction.
-   - Click **Approve**.
-5. **Verify On-Chain**:
-   - The frontend automatically submits the transaction signature to the backend for independent verification against Solana Devnet RPC.
-   - A direct link to the transaction on **Solana Explorer** (`https://explorer.solana.com/tx/...`) is displayed.
+1. Install Phantom or Solflare.
+2. Open the wallet settings and switch the network to **Solana Devnet**.
+3. Fund the wallet with free Devnet SOL: [faucet.solana.com](https://faucet.solana.com/) or `solana airdrop 1 <ADDRESS> --url devnet`.
+4. On the site, click **Connect Wallet**, then use **Seal this clipping** to sign the memo.
+
+If a wallet has zero balance, the attestation panel explains how to fund it. Simulated signatures (`sim_orbitree_...`) are accepted by the backend for demo runs that cannot reach Devnet; these show as "Simulated" rather than linking to Solana Explorer.
 
 ---
 
-## 🔍 How to Check Stored Data
+## Using the app
 
-### 1. Query Local SQLite Database
-All records and contributions are stored in `backend/obitree.db`:
+1. **Connect a wallet** from the masthead.
+2. **Archive a clipping** on the front page. Orbitree creates the chronicle automatically.
+3. Review the extracted claims and the canonical JSON on the clipping card.
+4. **Seal this clipping** to sign the `ORBITREE|1` memo on Devnet.
+5. **Copy the chronicle link** and open it from a second wallet.
+6. Add a second clipping to the same chronicle, then seal it. Its memo points back to the first record hash.
+7. Open **The Family Chronicle** tab to see the merged tree, confidence seal, corroborated branches, conflicts, notices and evidence. **Clippings & Evidence** lists each page; **Chain Ledger** shows the hash chain.
 
-```bash
-# View all registered documents
-sqlite3 backend/obitree.db "SELECT id, filename, file_hash, created_at FROM documents;"
+---
 
-# View all canonical records and their hashes
-sqlite3 backend/obitree.db "SELECT record_id, version, record_hash, status FROM canonical_records;"
+## API
 
-# View all Solana attestations and verified transaction signatures
-sqlite3 backend/obitree.db "SELECT id, document_id, wallet, tx_signature, verification_status, created_at FROM contributions;"
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/health` | Service, database and network status |
+| `GET` | `/api/projects` | List memorial chronicles |
+| `GET` | `/api/projects/{project_id}` | Chronicle with documents, merged graph, reasoning and ledger |
+| `POST` | `/api/documents` | Upload a clipping (`file`, optional `project_id`, optional `wallet`) |
+| `GET` | `/api/documents/{doc_id}` | Document detail including raw OCR |
+| `POST` | `/api/documents/{doc_id}/extract` | Re-run extraction for a stored document |
+| `GET` | `/api/records/{record_id}` | Latest canonical record and contributing attestation |
+| `POST` | `/api/attestations` | Submit and verify a Solana attestation |
+| `GET` | `/api/verify/{signature}` | Look up a verified signature |
+
+---
+
+## Memo format
+
+```text
+ORBITREE|1
+record: doc_001
+version: 1
+action: DOCUMENT_REGISTERED
+file_hash: <SHA256>
+record_hash: <SHA256>
+previous_hash: <PREVIOUS_RECORD_HASH>
 ```
 
-### 2. Query via REST API
-- **Fetch Canonical Record:**
-  ```bash
-  curl http://localhost:8000/api/records/<DOCUMENT_ID>
-  ```
-- **Verify Transaction Signature:**
-  ```bash
-  curl http://localhost:8000/api/verify/<TRANSACTION_SIGNATURE>
-  ```
+Legacy `PAPERROOTS|1` memos are still accepted by verification so older records continue to validate.
+
+The memo instruction uses the SPL Memo Program (`MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`).
 
 ---
 
-## 📂 Repository Structure
+## Repository structure
 
 ```text
 ObiTree/
-├── README.md                      # Project documentation and setup guide
 ├── backend/
-│   ├── .env.example               # Template environment configuration
-│   ├── requirements.txt           # Python backend dependencies
-│   ├── obitree.db                 # SQLite database (created automatically)
-│   ├── uploads/                   # Stored original document uploads
-│   └── app/
-│       ├── main.py                # FastAPI entry point & CORS configuration
-│       ├── config.py              # Environment configuration loader
-│       ├── database.py            # SQLite database connection & session setup
-│       ├── models.py              # SQLAlchemy models (Document, CanonicalRecord, Contribution)
-│       ├── routers/
-│       │   └── documents.py       # API endpoints (upload, extract, records, attestations, verify)
-│       └── services/
-│           ├── hashing_service.py # SHA-256 calculation for files and canonical records
-│           ├── ocr_service.py     # OpenCV image preprocessing + Tesseract OCR
-│           ├── llm_service.py     # Gemini structured claim extraction (RelationshipData schema)
-│           ├── record_service.py  # Canonical record builder & deterministic sorting
-│           └── solana_service.py  # Solana RPC attestation verification
+│   ├── app/
+│   │   ├── main.py                 # FastAPI app
+│   │   ├── models.py               # Project, ProjectDocument, Document, CanonicalRecord, Contribution
+│   │   ├── routers/documents.py    # Upload, chronicles, canonical records, attestations
+│   │   └── services/
+│   │       ├── graph_service.py    # Merged family graph, corroboration, conflicts, reasoning, ledger
+│   │       ├── hashing_service.py  # SHA-256 helpers
+│   │       ├── ocr_service.py      # OpenCV + Tesseract
+│   │       ├── llm_service.py      # Gemini structured extraction
+│   │       ├── record_service.py   # Deterministic canonical record builder
+│   │       └── solana_service.py   # Memo verification against Solana RPC
+│   ├── obitree.db                  # SQLite database (created automatically)
+│   └── uploads/                    # Original uploads
 └── frontend/
-    ├── package.json               # Node.js dependencies
-    ├── vite.config.js             # Vite development server configuration
     └── src/
-        ├── App.jsx                # Main application component & Solana Wallet Provider
-        ├── pages/
-        │   └── Dashboard.jsx      # Upload & attestation dashboard
-        ├── components/
-        │   └── AttestationCard.jsx # Two-hash display, tabs, faucet guide, and signing buttons
-        └── lib/
-            ├── api.js             # Backend API client functions
-            └── solana.js          # Solana Memo transaction builder
+        ├── App.jsx                 # Hash router and application shell
+        ├── pages/HomePage.jsx      # Front page, upload, archive
+        ├── pages/ProjectPage.jsx   # Shared chronicle
+        ├── components/             # Masthead, FamilyTree, ReasoningPanel, ProvenancePanel, LedgerChain, ...
+        ├── lib/api.js              # Backend client
+        └── lib/solana.js           # Memo transaction builder
 ```
 
 ---
 
-## 🔒 Two-Hash Integrity System
+## Two-hash integrity
 
-PaperRoots enforces a clear separation between **physical document bytes** and **canonical knowledge**:
+1. **`file_hash`** = `SHA-256(original file bytes)` — proves the uploaded clipping was not altered.
+2. **`record_hash`** = `SHA-256(canonical JSON)` — identifies the normalized claims extracted from that clipping.
+3. **`previous_hash`** = the prior record hash in the same chronicle — links contributions into a per-chronicle chain.
 
-1. **`file_hash`**: `SHA-256(original_file_bytes)` — Cryptographically guarantees that the historical source document uploaded was never altered.
-2. **`record_hash`**: `SHA-256(canonical_json)` — Cryptographically identifies the normalized, deterministic JSON representation of the genealogical claims extracted from the document.
+The canonical record sorts its keys and list entries deterministically so the same extraction always produces the same hash.

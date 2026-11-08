@@ -2,6 +2,7 @@ import os
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from .database import Base, engine
 from . import models
 from .routers import documents
@@ -16,10 +17,14 @@ logging.basicConfig(
         logging.FileHandler(LOG_FILE, encoding="utf-8"),
     ],
 )
-logger = logging.getLogger("paperroots")
-logger.info("Starting PaperRoots backend server...")
+logger = logging.getLogger("orbitree")
+logger.info("Starting Orbitree backend server...")
 
-app = FastAPI(title="PaperRoots API")
+app = FastAPI(
+    title="Orbitree API",
+    description="Family chronicles reconstructed from obituaries and sealed on Solana.",
+    version="2.0.0",
+)
 
 # Enable CORS for React frontend
 app.add_middleware(
@@ -33,6 +38,13 @@ app.add_middleware(
 # Initialize all database tables
 Base.metadata.create_all(bind=engine)
 
+# Serve the original clippings so the scan can be compared with its extraction
+UPLOAD_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "uploads")
+)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
 # Include API routes
 app.include_router(documents.router)
 
@@ -42,6 +54,7 @@ app.include_router(documents.router)
 def health():
     return {
         "status": "ok",
-        "service": "paperroots-backend",
+        "service": "orbitree-backend",
         "database": "sqlite",
+        "network": "solana-devnet",
     }

@@ -8,7 +8,7 @@ from PIL import Image
 
 from ..config import GEMINI_API_KEY, get_gemini_api_key
 
-logger = logging.getLogger("paperroots.llm_service")
+logger = logging.getLogger("orbitree.llm_service")
 
 try:
     from google import genai
@@ -428,7 +428,7 @@ def extract_structured_claims(ocr_text: str, image_path: Optional[str] = None) -
             failure_reason="google-genai library is missing",
         )
 
-    prompt = f"""You are an expert information extraction system for PaperRoots.
+    prompt = f"""You are an expert information extraction system for Orbitree.
 Read the following OCR text and/or document image from a newspaper memorial / obituary clipping.
 Extract all listed family members and their exact relationship to the deceased.
 Extract the venue name, full address, and event date where the scheduled event is taking place.

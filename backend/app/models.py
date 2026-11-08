@@ -3,6 +3,29 @@ from sqlalchemy.sql import func
 from .database import Base
 
 
+class Project(Base):
+    __tablename__ = "projects"
+
+    id = Column(String, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    subject_name = Column(String, nullable=False, index=True)
+    description = Column(Text, default="")
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class ProjectDocument(Base):
+    __tablename__ = "project_documents"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(String, ForeignKey("projects.id"), nullable=False, index=True)
+    document_id = Column(
+        String, ForeignKey("documents.id"), nullable=False, unique=True, index=True
+    )
+    added_by = Column(String, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
 class Document(Base):
     __tablename__ = "documents"
 

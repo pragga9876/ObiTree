@@ -63,7 +63,7 @@ def extract_memo_from_transaction(tx_data: Dict[str, Any]) -> Optional[str]:
     for log in log_messages:
         if "Program log: Memo" in log:
             return log.replace("Program log: Memo (len", "").split("): ", 1)[-1].strip('"')
-        if "PAPERROOTS|1" in log:
+        if "ORBITREE|1" in log or "PAPERROOTS|1" in log:
             return log
 
     return None
@@ -89,7 +89,7 @@ async def verify_solana_attestation(
                 "verified": True,
                 "status": "VERIFIED_SIMULATED",
                 "signature": signature,
-                "memo": f"PAPERROOTS|1\nrecord: {expected_record_id}\nversion: {expected_version}\naction: DOCUMENT_REGISTERED\nfile_hash: {expected_file_hash}\nrecord_hash: {expected_record_hash}\nprevious_hash: -",
+                "memo": f"ORBITREE|1\nrecord: {expected_record_id}\nversion: {expected_version}\naction: DOCUMENT_REGISTERED\nfile_hash: {expected_file_hash}\nrecord_hash: {expected_record_hash}\nprevious_hash: -",
                 "message": "Simulated Devnet transaction accepted for testing",
             }
         return {
@@ -116,12 +116,12 @@ async def verify_solana_attestation(
             "message": "No Memo instruction found in transaction",
         }
 
-    # 3. Check for PAPERROOTS prefix
-    if "PAPERROOTS|1" not in memo_text:
+    # 3. Check for the Orbitree memo envelope (legacy PaperRoots memos still verify)
+    if "ORBITREE|1" not in memo_text and "PAPERROOTS|1" not in memo_text:
         return {
             "verified": False,
             "status": "INVALID_FORMAT",
-            "message": "Memo does not match PAPERROOTS|1 specification",
+            "message": "Memo does not match the ORBITREE|1 specification",
         }
 
     # 4. Check record_hash and file_hash matching
@@ -130,6 +130,27 @@ async def verify_solana_attestation(
             "verified": False,
             "status": "RECORD_HASH_MISMATCH",
             "message": f"Memo does not contain expected record_hash: {expected_record_hash}",
+        }
+
+    if expected_file_hash and expected_file_hash not in memo_text:
+        return {
+            "verified": False,
+            "status": "FILE_HASH_MISMATCH",
+            "message": f"Memo does not contain expected file_hash: {expected_file_hash}",
+        }
+
+    # 5. Confirm the contributor wallet actually signed the transaction
+    message = tx_data.get("transaction", {}).get("message", {})
+    signers = {
+        key.get("pubkey")
+        for key in message.get("accountKeys", [])
+        if isinstance(key, dict) and key.get("signer")
+    }
+    if expected_wallet and signers and expected_wallet not in signers:
+        return {
+            "verified": False,
+            "status": "WALLET_MISMATCH",
+            "message": "The transaction was not signed by the expected contributor wallet.",
         }
 
     return {
