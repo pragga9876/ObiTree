@@ -1791,18 +1791,3 @@ documented so contributors and judges can evaluate it honestly.
 | [`docs/SOLANA-MEMO.md`](docs/SOLANA-MEMO.md) | Memo envelope, verification rules, and failure statuses |
 | [`docs/DEMO.md`](docs/DEMO.md) | A short judge/demo script |
 | [`Ai/Document.md`](Ai/Document.md) | Comparison of the vision-first and OCR-first extraction experiments |
-
----
-
-## License
-
-No license file is currently included in this repository. All rights are
-reserved by default. If you intend to publish ObiTree as open source, add a
-`LICENSE` file (for example MIT or Apache-2.0) and update this section before
-accepting external contributions.
-
----
-
-<p align="center">
-  <em>ObiTree — because a family record should be remembered, not quietly rewritten.</em>
-</p>
