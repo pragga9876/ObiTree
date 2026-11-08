@@ -11,6 +11,7 @@ from sqlalchemy import text
 from . import config, models
 from .database import Base, IS_POSTGRES, engine, ensure_schema
 from .routers import documents
+from .services import storage_service
 
 LOG_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app.log"))
 log_handlers = [logging.StreamHandler()]
@@ -80,12 +81,38 @@ def _log_deployment_config():
         logger.info("CORS origin regex: %s", config.cors_origin_regex())
 
 
+def _log_storage_status():
+    """Check Supabase Storage once at boot so bad keys/buckets show in logs."""
+    if not config.supabase_storage_enabled():
+        return
+    role = storage_service.key_role()
+    if role in {"anon", "publishable"}:
+        logger.error(
+            "Supabase key is a %s key, not a secret/service key; uploads will be "
+            "rejected by row-level security.",
+            role,
+        )
+    try:
+        info = storage_service.check_bucket()
+    except Exception as exc:  # pragma: no cover - depends on external service
+        logger.warning("Supabase Storage bucket check failed: %s", exc)
+        return
+    logger.info(
+        "Supabase bucket '%s' ready (public=%s, size_limit=%s, allowed_mime_types=%s)",
+        info["id"],
+        info["public"],
+        info["file_size_limit"],
+        info["allowed_mime_types"] or "any",
+    )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_schema()
     _retire_legacy_simulated_attestations()
     _log_deployment_config()
+    _log_storage_status()
     logger.info(
         "Database ready (%s); storage=%s",
         "postgresql" if IS_POSTGRES else "sqlite",

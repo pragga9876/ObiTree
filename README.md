@@ -1,4 +1,4 @@
-# Orbitree
+# Obitree
 
 **The Family Chronicle.** ObiTree reads old obituaries and memorial notices, reconstructs the family tree across independent clippings, and seals every contribution on Solana — so a family record cannot be quietly rewritten.
 
@@ -141,7 +141,14 @@ In development, a missing `VITE_API_URL` falls back to `http://localhost:8000`. 
 1. Create a Supabase project.
 2. **Database:** copy the connection string from *Project Settings → Database*. The pooler URL (`...pooler.supabase.com:6543/postgres`) is recommended for Render.
 3. **Storage:** create a bucket named `obituary-images`. Either make it public (simplest; images are not sensitive beyond the clipping itself) or keep it private — the backend issues signed URLs when `SUPABASE_STORAGE_PUBLIC=false`.
-4. Copy the **service role key** from *Project Settings → API*. Keep it server-side only; never put it in `VITE_*` variables or the frontend.
+4. Copy the **secret key** from *Project Settings → API*. Use the legacy `service_role` JWT (`eyJ...`) or the newer `sb_secret_...` key — **not** the anon/publishable key, because uploads are rejected by row-level security. Keep it server-side only; never put it in `VITE_*` variables or the frontend.
+
+Upload failures from Supabase are returned with the real error code, e.g. `Supabase Storage upload failed (HTTP 400: AccessDenied: ...)`. Common causes:
+
+- `Invalid Compact JWS` — a non-JWT `sb_secret_...` key was sent in the `Authorization` header (the backend now sends new keys only via `apikey`).
+- `AccessDenied` / `new row violates row-level security policy` — the anon/publishable key was configured instead of the secret/service key.
+- `NoSuchBucket` — the bucket name does not match `SUPABASE_STORAGE_BUCKET`.
+- `InvalidMimeType` — the bucket has an allowed-MIME list that excludes the upload.
 
 Install the database schema by starting the backend once against the Supabase URL; `Base.metadata.create_all()` and the idempotent migration run automatically.
 
@@ -166,7 +173,7 @@ Environment variables to set in the Render dashboard:
 | `APP_ENV` | yes | `production` |
 | `DATABASE_URL` | yes | Supabase Postgres URL (pooler, `sslmode=require`) |
 | `SUPABASE_URL` | yes | `https://<project-ref>.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-side only |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes | Secret key (`sb_secret_...`) or legacy `service_role` JWT; never the anon/publishable key |
 | `SUPABASE_STORAGE_BUCKET` | yes | `obituary-images` |
 | `SUPABASE_STORAGE_PUBLIC` | no | `true` (default) or `false` for signed URLs |
 | `SUPABASE_SIGNED_URL_TTL` | no | Seconds; default `604800` |

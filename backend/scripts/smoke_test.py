@@ -28,7 +28,7 @@ from PIL import Image  # noqa: E402
 
 from app import main  # noqa: E402
 from app.routers import documents  # noqa: E402
-from app.services import llm_service, solana_service  # noqa: E402
+from app.services import llm_service, solana_service, storage_service  # noqa: E402
 
 # Keep the smoke test offline: force the deterministic extractor.
 llm_service.get_gemini_api_key = lambda: ""
@@ -136,7 +136,105 @@ def run_verification_checks(record_id, version, file_hash, record_hash):
         solana_service.fetch_transaction_from_rpc = original_fetch
 
 
+def run_storage_checks():
+    check(
+        "object key spaces are sanitized",
+        storage_service.sanitize_filename("Screenshot 2026-11-08 105659.png")
+        == "Screenshot_2026-11-08_105659.png",
+    )
+    check(
+        "unsafe object key characters are removed",
+        storage_service.sanitize_filename("bill #1?&.png") == "bill_1.png",
+    )
+
+    original = {
+        "enabled": storage_service.config.supabase_storage_enabled,
+        "url": storage_service.config.supabase_url,
+        "bucket": storage_service.config.supabase_storage_bucket,
+        "public": storage_service.config.supabase_storage_public,
+        "key": storage_service.config.supabase_service_role_key,
+    }
+    original_post = storage_service.httpx.post
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        is_error = False
+        text = "{}"
+
+        def json(self):
+            return {}
+
+    def fake_post(url, headers=None, **kwargs):
+        captured["url"] = url
+        captured["headers"] = dict(headers or {})
+        return FakeResponse()
+
+    try:
+        storage_service.config.supabase_storage_enabled = lambda: True
+        storage_service.config.supabase_url = lambda: "https://example.supabase.co"
+        storage_service.config.supabase_storage_bucket = lambda: "obituary-images"
+        storage_service.config.supabase_storage_public = lambda: True
+        storage_service.config.supabase_service_role_key = lambda: "sb_secret_test"
+        storage_service.httpx.post = fake_post
+
+        stored = storage_service.save_upload(
+            "Screenshot 2026-11-08 105659.png", b"image", "image/png"
+        )
+        check(
+            "supabase upload uses a safe object key",
+            stored["path"] == "clippings/Screenshot_2026-11-08_105659.png"
+            and "%20" not in captured["url"],
+            captured["url"],
+        )
+        check(
+            "new secret keys are not sent as bearer tokens",
+            captured["headers"].get("apikey") == "sb_secret_test"
+            and "Authorization" not in captured["headers"],
+            str(sorted(captured["headers"])),
+        )
+
+        storage_service.config.supabase_service_role_key = lambda: "sb_publishable_test"
+        check("publishable keys are detected", storage_service.key_role() == "publishable")
+
+        storage_service.config.supabase_service_role_key = lambda: "eyJlegacy.jwt.token"
+        legacy_headers = storage_service._headers()
+        check(
+            "legacy JWT keys keep the bearer header",
+            legacy_headers.get("Authorization") == "Bearer eyJlegacy.jwt.token",
+        )
+
+        class ErrorResponse:
+            status_code = 400
+            is_error = True
+            text = '{"code":"InvalidKey","message":"Invalid key"}'
+
+            def json(self):
+                return {"code": "InvalidKey", "message": "Invalid key"}
+
+        storage_service.httpx.post = lambda *args, **kwargs: ErrorResponse()
+        detail = ""
+        try:
+            storage_service.save_upload("clip.png", b"image", "image/png")
+        except storage_service.StorageError as exc:
+            detail = str(exc)
+        check(
+            "supabase error body is surfaced",
+            "InvalidKey" in detail and "HTTP 400" in detail,
+            detail,
+        )
+    finally:
+        storage_service.config.supabase_storage_enabled = original["enabled"]
+        storage_service.config.supabase_url = original["url"]
+        storage_service.config.supabase_storage_bucket = original["bucket"]
+        storage_service.config.supabase_storage_public = original["public"]
+        storage_service.config.supabase_service_role_key = original["key"]
+        storage_service.httpx.post = original_post
+
+
 def run():
+    run_storage_checks()
+
     image_path = Path(tempfile.gettempdir()) / "obitree-smoke.png"
     Image.new("RGB", (32, 32), "white").save(image_path)
 
