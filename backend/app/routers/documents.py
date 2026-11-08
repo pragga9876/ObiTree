@@ -97,8 +97,8 @@ async def upload_document(
         print(f"OCR warning: {e}")
         raw_ocr_text = clean_filename
 
-    # 5. LLM structured claims extraction matching RelationshipData schema
-    extraction_results = extract_structured_claims(raw_ocr_text)
+    # 5. LLM structured claims extraction matching RelationshipData schema (Methods 1 & 2 from Ai/)
+    extraction_results = extract_structured_claims(raw_ocr_text, image_path=file_path)
     extracted_dicts = [item.model_dump() for item in extraction_results]
     model_used = getattr(extraction_results, "model_name", "gemini-3.5-flash-lite")
 
@@ -166,7 +166,7 @@ async def extract_document(
         raise HTTPException(status_code=404, detail="Document or file not found")
 
     raw_ocr_text = extract_text_from_image(doc.file_path)
-    extraction_results = extract_structured_claims(raw_ocr_text)
+    extraction_results = extract_structured_claims(raw_ocr_text, image_path=doc.file_path)
     extracted_dicts = [item.model_dump() for item in extraction_results]
     model_used = getattr(extraction_results, "model_name", "gemini-3.5-flash-lite")
 

@@ -4,8 +4,9 @@ import json
 import logging
 from typing import List, Optional
 from pydantic import BaseModel, Field
+from PIL import Image
 
-from ..config import GEMINI_API_KEY
+from ..config import GEMINI_API_KEY, get_gemini_api_key
 
 logger = logging.getLogger("paperroots.llm_service")
 
@@ -394,13 +395,14 @@ def _fallback_relationship_extraction(ocr_text: str) -> List[RelationshipData]:
     return results
 
 
-def extract_structured_claims(ocr_text: str) -> ExtractionResult:
+def extract_structured_claims(ocr_text: str, image_path: Optional[str] = None) -> ExtractionResult:
     """
     Extracts structured relationships matching Rohit's exact RelationshipData schema.
-    Uses Gemini LLM with structured output or fallback.
+    Uses Gemini Multimodal Vision (Method 2 from Ai/ folder) when image_path is available,
+    with OCR text prompting (Method 1) and offline rule fallback.
     Logs API key failures explicitly with full diagnostic details whenever they occur.
     """
-    api_key = GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
+    api_key = get_gemini_api_key()
 
     if not api_key:
         logger.warning(
@@ -427,14 +429,14 @@ def extract_structured_claims(ocr_text: str) -> ExtractionResult:
         )
 
     prompt = f"""You are an expert information extraction system for PaperRoots.
-Read the following OCR text from a newspaper memorial / obituary clipping.
+Read the following OCR text and/or document image from a newspaper memorial / obituary clipping.
 Extract all listed family members and their exact relationship to the deceased.
 Extract the venue name, full address, and event date where the scheduled event is taking place.
 
 IMPORTANT EXTRACTION RULES:
 1. IDENTIFY THE PRIMARY SUBJECT (e.g. the deceased person, such as Veena Nayar).
 2. EXTRACT ALL FAMILY MEMBERS:
-   - Identify each person and their relationship to the subject (e.g. Daughter, Son, Daughter-in-law, Son-in-law, Grandchild, Spouse).
+   - Identify each person and their relationship to the subject (e.g. Daughter, Son, Daughter-in-law, Son-in-law, Grandchild, Spouse, Father, Mother).
    - In Indian memorial / obituary notices, names listed after sons/daughters (e.g. 'Mehul & Devaansh') are Grandchildren. Extract each of them as relationship_type: 'Grandchild'.
    - Fix obvious OCR typos in text during your reasoning (e.g., 'Maylair' -> 'Mayfair', 'Kolkita' -> 'Kolkata', 'San & Davghier-in-law' -> 'Son & Daughter-in-law', 'Bobhy' -> 'Bobby').
 3. NEVER treat venues, halls, roads, or cities as person names.
@@ -448,19 +450,26 @@ OCR TEXT:
 
     client = genai.Client(api_key=api_key)
 
-    # Use flash models with list[RelationshipData] schema
+    # Use flash models supported by Google GenAI v1
     candidate_models = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
         "gemini-3.5-flash-lite",
         "gemini-3.8-flash",
     ]
 
     for model_name in candidate_models:
         try:
+            # Build multimodal contents: text prompt + direct image (Method 2 from Ai/ folder)
+            contents = [prompt]
+            if image_path and os.path.exists(image_path) and not image_path.lower().endswith(".pdf"):
+                try:
+                    img = Image.open(image_path)
+                    contents.append(img)
+                except Exception as img_err:
+                    logger.warning(f"[LLMService] Multimodal image load notice: {img_err}")
+
             response = client.models.generate_content(
                 model=model_name,
-                contents=prompt,
+                contents=contents,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=list[RelationshipData],
