@@ -1,21 +1,5 @@
 import hashlib
 import json
-import os
-
-
-def hash_file(file_path: str) -> str:
-    """
-    Calculate the SHA-256 checksum of an original file on disk.
-    Reads in 64KB chunks to efficiently handle large documents.
-    """
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found for hashing: {file_path}")
-
-    hasher = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        while chunk := f.read(65536):
-            hasher.update(chunk)
-    return hasher.hexdigest()
 
 
 def hash_bytes(data: bytes) -> str:

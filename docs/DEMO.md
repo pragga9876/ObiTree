@@ -1,4 +1,4 @@
-# Orbitree Demo Script
+# ObiTree Demo Script
 
 A five-minute walkthrough for judges.
 
@@ -6,7 +6,7 @@ A five-minute walkthrough for judges.
 
 - Backend: `cd backend && uvicorn app.main:app --reload --port 8000`
 - Frontend: `cd frontend && npm run dev`
-- Browser wallet on **Devnet** with a small SOL balance, or use the simulated signature path.
+- Two browser wallets on **Devnet**, each with a small SOL balance (faucet.solana.com). Real signatures are required; simulated signatures are rejected by the backend.
 
 ## 1. The front page
 
@@ -43,7 +43,7 @@ Open **Chain Ledger**.
 
 - Block 01 is genesis and `PREVIOUS` is `-`.
 - Block 02 shows block 01's record hash as `PREVIOUS`, plus the document hash and wallet.
-- Simulated demo signatures display "No public tx"; real Devnet signatures link to Solana Explorer.
+- Every block links to its real Devnet transaction on Solana Explorer.
 
 ## 6. What to emphasize
 

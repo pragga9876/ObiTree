@@ -1,6 +1,17 @@
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const CONFIGURED_BASE = (import.meta.env.VITE_API_URL || "").trim().replace(/\/$/, "");
+const DEV_BASE = "http://localhost:8000";
 
-export { API_BASE };
+// A deployed build must never silently talk to localhost.
+export const API_BASE = CONFIGURED_BASE || (import.meta.env.DEV ? DEV_BASE : "");
+
+function apiUrl(path) {
+  if (!API_BASE) {
+    throw new Error(
+      "The backend URL is not configured. Set VITE_API_URL for this deployment."
+    );
+  }
+  return `${API_BASE}${path}`;
+}
 
 export function fileUrl(path) {
   if (!path) return null;
@@ -11,14 +22,19 @@ export function fileUrl(path) {
 async function readError(response, fallback) {
   try {
     const data = await response.json();
-    return data?.detail || data?.message || fallback;
+    const detail = data?.detail ?? data?.message;
+    if (typeof detail === "string") return detail;
+    if (detail && typeof detail === "object") {
+      return detail.message || JSON.stringify(detail);
+    }
+    return fallback;
   } catch {
     return fallback;
   }
 }
 
 export async function checkHealth() {
-  const response = await fetch(`${API_BASE}/health`);
+  const response = await fetch(apiUrl("/health"));
   if (!response.ok) {
     throw new Error(`Health check failed with status ${response.status}`);
   }
@@ -26,7 +42,7 @@ export async function checkHealth() {
 }
 
 export async function listProjects() {
-  const response = await fetch(`${API_BASE}/api/projects`);
+  const response = await fetch(apiUrl("/api/projects"));
   if (!response.ok) {
     throw new Error(await readError(response, "Could not load the archive"));
   }
@@ -35,7 +51,7 @@ export async function listProjects() {
 }
 
 export async function getProject(projectId) {
-  const response = await fetch(`${API_BASE}/api/projects/${projectId}`);
+  const response = await fetch(apiUrl(`/api/projects/${projectId}`));
   if (!response.ok) {
     throw new Error(await readError(response, "Could not load this chronicle"));
   }
@@ -48,7 +64,7 @@ export async function uploadDocument(file, { projectId, wallet } = {}) {
   if (projectId) formData.append("project_id", projectId);
   if (wallet) formData.append("wallet", wallet);
 
-  const response = await fetch(`${API_BASE}/api/documents`, {
+  const response = await fetch(apiUrl("/api/documents"), {
     method: "POST",
     body: formData,
   });
@@ -61,7 +77,7 @@ export async function uploadDocument(file, { projectId, wallet } = {}) {
 }
 
 export async function getDocument(documentId) {
-  const response = await fetch(`${API_BASE}/api/documents/${documentId}`);
+  const response = await fetch(apiUrl(`/api/documents/${documentId}`));
   if (!response.ok) {
     throw new Error(await readError(response, "Could not load the clipping"));
   }
@@ -69,7 +85,7 @@ export async function getDocument(documentId) {
 }
 
 export async function getCanonicalRecord(recordId) {
-  const response = await fetch(`${API_BASE}/api/records/${recordId}`);
+  const response = await fetch(apiUrl(`/api/records/${recordId}`));
   if (!response.ok) {
     throw new Error(await readError(response, `Failed to fetch record ${recordId}`));
   }
@@ -83,7 +99,7 @@ export async function submitAttestation({
   wallet,
   network = "devnet",
 }) {
-  const response = await fetch(`${API_BASE}/api/attestations`, {
+  const response = await fetch(apiUrl("/api/attestations"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

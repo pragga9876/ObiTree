@@ -428,7 +428,7 @@ def extract_structured_claims(ocr_text: str, image_path: Optional[str] = None) -
             failure_reason="google-genai library is missing",
         )
 
-    prompt = f"""You are an expert information extraction system for Orbitree.
+    prompt = f"""You are an expert information extraction system for ObiTree.
 Read the following OCR text and/or document image from a newspaper memorial / obituary clipping.
 Extract all listed family members and their exact relationship to the deceased.
 Extract the venue name, full address, and event date where the scheduled event is taking place.

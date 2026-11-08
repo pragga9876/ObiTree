@@ -85,7 +85,7 @@ export default function LedgerChain({ ledger = [], onOpenDocument }) {
                           <code className="block-signature">
                             {attestation.tx_signature}
                           </code>
-                          {txUrl ? (
+                          {txUrl && (
                             <a
                               className="btn-link"
                               href={txUrl}
@@ -94,8 +94,6 @@ export default function LedgerChain({ ledger = [], onOpenDocument }) {
                             >
                               Solana Explorer ↗
                             </a>
-                          ) : (
-                            <span className="block-sim">Simulated attestation</span>
                           )}
                         </div>
                       );

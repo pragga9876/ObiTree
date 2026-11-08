@@ -4,10 +4,10 @@ export default function Masthead({ route, onHome, onArchive }) {
   return (
     <header className="masthead">
       <div className="masthead-main">
-        <button type="button" className="brand-lockup" onClick={onHome} aria-label="Orbitree home">
-          <img className="brand-mark" src="/ObiTree_Logo.jpg" alt="Orbitree seal" />
+        <button type="button" className="brand-lockup" onClick={onHome} aria-label="ObiTree home">
+          <img className="brand-mark" src="/ObiTree_Logo.jpg" alt="ObiTree seal" />
           <span className="brand-type">
-            <span className="brand-name">Orbitree</span>
+            <span className="brand-name">ObiTree</span>
             <span className="brand-tagline">The family record, sealed on Solana</span>
           </span>
         </button>

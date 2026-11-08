@@ -8,7 +8,8 @@ import {
 } from "@solana/web3.js";
 
 export const NETWORK = WalletAdapterNetwork.Devnet;
-export const DEVNET_ENDPOINT = clusterApiUrl(NETWORK);
+export const DEVNET_ENDPOINT =
+  import.meta.env.VITE_SOLANA_RPC_URL || clusterApiUrl(NETWORK);
 
 // Official Solana Memo Program V2
 export const MEMO_PROGRAM_ID = new PublicKey(
@@ -38,7 +39,7 @@ export function explorerAddressUrl(address) {
 }
 
 /**
- * Builds a Solana transaction carrying the Orbitree memo envelope.
+ * Builds a Solana transaction carrying the ObiTree memo envelope.
  */
 export function buildMemoTransaction(memoText, signerPublicKey, blockhash) {
   const memoData = new TextEncoder().encode(memoText);

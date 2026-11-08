@@ -1,60 +1,144 @@
-import os
 import logging
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from .database import Base, engine
-from . import models
+from sqlalchemy import text
+
+from . import config, models
+from .database import Base, IS_POSTGRES, engine, ensure_schema
 from .routers import documents
 
-# Configure unified application logging to console and backend/app.log
 LOG_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app.log"))
+log_handlers = [logging.StreamHandler()]
+try:
+    log_handlers.append(logging.FileHandler(LOG_FILE, encoding="utf-8"))
+except OSError:
+    pass
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
-    ],
+    handlers=log_handlers,
 )
-logger = logging.getLogger("orbitree")
-logger.info("Starting Orbitree backend server...")
+logger = logging.getLogger("obitree")
+logger.info("Starting ObiTree backend server...")
+
+
+def _retire_legacy_simulated_attestations():
+    """
+    Older builds accepted ``sim_``/``mock_`` signatures. Those were never
+    on-chain, so they must stop counting as verified attestations.
+    """
+    try:
+        with engine.begin() as connection:
+            retired = connection.execute(
+                text(
+                    "UPDATE contributions SET verification_status = 'FAILED' "
+                    "WHERE verification_status = 'VERIFIED' "
+                    "AND (tx_signature LIKE 'sim[_]%' OR tx_signature LIKE 'mock[_]%')"
+                )
+            )
+            connection.execute(
+                text(
+                    "UPDATE canonical_records SET status = 'READY_FOR_ATTESTATION' "
+                    "WHERE status = 'ATTESTED' AND NOT EXISTS ("
+                    "SELECT 1 FROM contributions c "
+                    "WHERE c.document_id = canonical_records.record_id "
+                    "AND c.version_id = canonical_records.version "
+                    "AND c.verification_status = 'VERIFIED')"
+                )
+            )
+            if retired.rowcount:
+                logger.warning(
+                    "Retired %s simulated attestation(s) from the ledger", retired.rowcount
+                )
+    except Exception as exc:  # pragma: no cover - depends on external database
+        logger.error("Could not retire legacy simulated attestations: %s", exc)
+
+
+def _log_deployment_config():
+    """Surface missing production configuration without printing secrets."""
+    if not config.is_production():
+        return
+    if not config.get_env("DATABASE_URL"):
+        logger.warning(
+            "DATABASE_URL is not set; falling back to SQLite on an ephemeral disk."
+        )
+    if not config.supabase_storage_enabled():
+        logger.warning(
+            "Supabase Storage is not configured; uploads will use ephemeral local disk."
+        )
+    if not config.get_env("CORS_ORIGINS"):
+        logger.warning(
+            "CORS_ORIGINS is not set; only local development origins are allowed."
+        )
+    logger.info("CORS allowlist: %s", ", ".join(config.cors_origins()) or "(none)")
+    if config.cors_origin_regex():
+        logger.info("CORS origin regex: %s", config.cors_origin_regex())
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    ensure_schema()
+    _retire_legacy_simulated_attestations()
+    _log_deployment_config()
+    logger.info(
+        "Database ready (%s); storage=%s",
+        "postgresql" if IS_POSTGRES else "sqlite",
+        "supabase" if config.supabase_storage_enabled() else "local",
+    )
+    yield
+
 
 app = FastAPI(
-    title="Orbitree API",
+    title="ObiTree API",
     description="Family chronicles reconstructed from obituaries and sealed on Solana.",
-    version="2.0.0",
+    version="2.1.0",
+    lifespan=lifespan,
 )
 
-# Enable CORS for React frontend
+# The Vercel deployment and local Vite servers are allowlisted through env vars.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.cors_origins(),
+    allow_origin_regex=config.cors_origin_regex() or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize all database tables
-Base.metadata.create_all(bind=engine)
-
-# Serve the original clippings so the scan can be compared with its extraction
-UPLOAD_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "uploads")
-)
+# Serve local development uploads. Production images live in Supabase Storage.
+UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "uploads"))
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
-# Include API routes
 app.include_router(documents.router)
 
 
 @app.get("/health")
 @app.get("/api/health")
 def health():
-    return {
-        "status": "ok",
-        "service": "orbitree-backend",
-        "database": "sqlite",
-        "network": "solana-devnet",
+    database_status = "ok"
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception as exc:  # pragma: no cover - depends on external database
+        logger.error("Health check database failure: %s", exc)
+        database_status = "unavailable"
+
+    payload = {
+        "status": "ok" if database_status == "ok" else "degraded",
+        "service": "obitree-backend",
+        "database": "postgresql" if IS_POSTGRES else "sqlite",
+        "database_status": database_status,
+        "storage": "supabase" if config.supabase_storage_enabled() else "local",
+        "network": config.solana_network(),
+        "rpc": config.solana_rpc_url(),
     }
+    if database_status != "ok":
+        return JSONResponse(status_code=503, content=payload)
+    return payload

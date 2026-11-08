@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+obitree.db
+uploads/
+app.log
+.pytest_cache/
+tests/

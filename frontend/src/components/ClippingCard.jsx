@@ -31,16 +31,12 @@ function WitnessSlot({ number, attestation, onAttest, onConnect, onShare, shareC
         <strong className="witness-wallet">{formatAddress(attestation.wallet, 6)}</strong>
         <span className="witness-verified">Verified on Solana Devnet</span>
         <span className="witness-signature">
-          {attestation.tx_signature?.startsWith("sim_")
-            ? "Simulated transaction"
-            : `${attestation.tx_signature?.slice(0, 18)}…`}
+          {attestation.tx_signature?.slice(0, 18)}…
         </span>
-        {txUrl ? (
+        {txUrl && (
           <a className="witness-link" href={txUrl} target="_blank" rel="noreferrer">
             Solana Explorer ↗
           </a>
-        ) : (
-          <span className="witness-sim">Rehearsal signature only</span>
         )}
       </div>
     );

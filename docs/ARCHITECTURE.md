@@ -1,9 +1,12 @@
-# Orbitree Architecture
+# ObiTree Architecture
 
 ## Backend
 
-FastAPI + SQLAlchemy + SQLite.
+FastAPI + SQLAlchemy. Development defaults to SQLite; production uses PostgreSQL (`DATABASE_URL`) and Supabase Storage for scans.
 
+- `config.py` reads `DATABASE_URL`, Supabase Storage, Solana RPC/network and CORS settings.
+- `database.py` normalizes Postgres URLs for `psycopg2` and runs a lightweight idempotent schema migration on startup.
+- `services/storage_service.py` writes uploads to Supabase Storage when `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set, otherwise to `backend/uploads`. Image URLs are resolved for every API response and stored bytes are re-downloaded on demand.
 - `routers/documents.py` owns uploads, chronicles, canonical records and attestations.
 - `services/ocr_service.py` preprocesses images with OpenCV and runs Tesseract.
 - `services/llm_service.py` asks Gemini for structured events and relationships. If the API key is missing or the model returns nothing usable, `record_service` builds a record from a deterministic heuristic parser instead.
@@ -17,15 +20,15 @@ FastAPI + SQLAlchemy + SQLite.
   - the same pair asserted with incompatible family types (or in both directions) is a `conflict` and both readings are kept;
   - differing printed event dates become `date_conflicts`;
   - confidence is a weighted edge score minus a conflict penalty, capped at 99.
-- `services/solana_service.py` verifies `ORBITREE|1` memos against the configured RPC.
+- `services/solana_service.py` verifies `ORBITREE|1` memos against `SOLANA_RPC_URL`. Verification is strict and fail-closed: the transaction must exist and succeed, the memo must come from an SPL Memo Program instruction, the record ID/version/action/file hash/record hash must match exactly, and the expected wallet must be a transaction signer. Simulated signatures are rejected.
 
 ## Data flow
 
 ```text
-upload → OCR → Gemini/heuristic extraction → canonical record
-       → file_hash + record_hash → memo with previous_hash
-       → wallet signs on Devnet → backend verifies via RPC
-       → contribution stored → graph rebuilt on read
+upload → Supabase Storage (or local dev uploads) → OCR → Gemini/heuristic extraction
+       → canonical record → file_hash + record_hash → memo with previous_hash
+       → wallet signs on Devnet → backend verifies via configured RPC
+       → contribution stored in PostgreSQL (or SQLite) → graph rebuilt on read
 ```
 
 The graph is computed on request from stored canonical records and contributions. Nothing is merged destructively; every edge retains its source clippings, evidence quotes, wallets and signatures.

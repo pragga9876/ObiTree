@@ -1,14 +1,24 @@
-# Orbitree API
+# ObiTree API
 
-Base URL: `http://localhost:8000`
+Base URL: the deployed Render service (or `http://localhost:8000` in development).
 
 ## Health
 
-`GET /api/health`
+`GET /api/health` (also available at `/health`)
 
 ```json
-{"status":"ok","service":"orbitree-backend","database":"sqlite","network":"solana-devnet"}
+{
+  "status": "ok",
+  "service": "obitree-backend",
+  "database": "postgresql",
+  "database_status": "ok",
+  "storage": "supabase",
+  "network": "devnet",
+  "rpc": "https://api.devnet.solana.com"
+}
 ```
+
+Returns `503` with `"status": "degraded"` when the database cannot be reached.
 
 ## Chronicles
 
@@ -32,11 +42,11 @@ Base URL: `http://localhost:8000`
 | `project_id` | no | Append to an existing chronicle |
 | `wallet` | no | Contributor wallet recorded at upload time |
 
-Without `project_id`, a new chronicle is created from the primary subject name. The response includes `document_id`, `file_hash`, `record_hash`, `canonical_record`, `memo_payload`, `previous_hash` and `project`.
+Without `project_id`, a new chronicle is created from the primary subject name. The response includes `document_id`, `file_hash`, `record_hash`, `canonical_record`, `memo_payload`, `previous_hash`, `image_url` and `project`. The scan is stored in Supabase Storage when configured, otherwise under `backend/uploads` for local development.
 
 `GET /api/documents/{doc_id}` — document detail plus `raw_ocr_text`.
 
-`POST /api/documents/{doc_id}/extract` — re-run OCR/extraction on the stored file.
+`POST /api/documents/{doc_id}/extract` — re-run OCR/extraction on the stored file. The original bytes are fetched from Supabase Storage when the document lives there.
 
 ## Records
 
@@ -56,6 +66,6 @@ Without `project_id`, a new chronicle is created from the primary subject name. 
 }
 ```
 
-The backend verifies the memo against the Solana RPC and records the contribution. Response includes `verification_status`, `wallet`, the verified hashes, verification details and the updated project summary.
+The backend verifies the memo against the Solana RPC and records the contribution. Response includes `verification_status`, `wallet`, the verified hashes, verification details and the updated project summary. A rejected attestation returns `400` (or `502` when the RPC is unreachable) with a `detail` object containing the rejection `status` and `message`; the failed row is stored as `FAILED` and never counts as a witness.
 
 `GET /api/verify/{signature}` — look up a stored attestation by signature.

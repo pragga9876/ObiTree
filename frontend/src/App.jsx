@@ -66,19 +66,6 @@ export default function App() {
         ) : (
           <HomePage onOpenProject={openProject} />
         )}
-
-        <footer className="colophon">
-          <div className="colophon-mark">
-            <img src="/ObiTree_Logo.jpg" alt="" aria-hidden="true" />
-          </div>
-          <div className="colophon-copy">
-            <p className="colophon-title">Orbitree</p>
-            <p>
-              A family chronicle is never finished. Every clipping is a page, every page is a
-              block, and every signature keeps the record honest.
-            </p>
-          </div>
-        </footer>
       </div>
     </SolanaWalletProvider>
   );

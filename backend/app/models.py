@@ -33,6 +33,9 @@ class Document(Base):
     filename = Column(String, nullable=False)
     file_path = Column(String, nullable=True)
     file_hash = Column(String, nullable=True, index=True)
+    storage_backend = Column(String, default="local")
+    storage_path = Column(String, nullable=True)
+    image_url = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
 

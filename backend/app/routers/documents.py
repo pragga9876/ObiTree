@@ -3,6 +3,8 @@ import re
 import uuid
 import json
 import secrets
+import shutil
+import tempfile
 from datetime import datetime
 from typing import Optional
 
@@ -10,19 +12,23 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from .. import config
 from ..database import SessionLocal
 from .. import models
 from ..services.graph_service import build_project_graph
-from ..services.hashing_service import hash_file
+from ..services.hashing_service import hash_bytes
 from ..services.ocr_service import extract_text_from_image
 from ..services.llm_service import extract_structured_claims
 from ..services.record_service import build_canonical_record, compute_record_hash
 from ..services.solana_service import verify_solana_attestation
+from ..services.storage_service import (
+    StorageError,
+    materialize_document,
+    resolve_image_url,
+    save_upload,
+)
 
 router = APIRouter(prefix="/api", tags=["documents"])
-
-UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "uploads"))
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 MEMO_VERSION = "ORBITREE|1"
 LEGACY_MEMO_PREFIXES = ("ORBITREE|1", "PAPERROOTS|1")
@@ -41,7 +47,7 @@ class AttestationRequest(BaseModel):
     version: int = 1
     transaction_signature: str
     network: str = "devnet"
-    wallet: Optional[str] = "contributor"
+    wallet: str
 
 
 def generate_memo_text(
@@ -243,11 +249,7 @@ def _document_payload(db: Session, document: models.Document, project: Optional[
     ]
     sealed = [item for item in attestations if item["verified"]]
     primary = sealed[-1] if sealed else (attestations[-1] if attestations else None)
-    image_url = (
-        f"/uploads/{os.path.basename(document.file_path)}"
-        if document.file_path
-        else None
-    )
+    image_url = resolve_image_url(document)
 
     memo = ""
     if canonical_row:
@@ -399,34 +401,51 @@ async def upload_document(
     doc_id = f"doc_{uuid.uuid4().hex[:8]}"
     clean_filename = file.filename or "document"
     safe_filename = f"{doc_id}_{os.path.basename(clean_filename)}"
-    file_path = os.path.join(UPLOAD_DIR, safe_filename)
 
     content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
 
-    file_hash = hash_file(file_path)
+    file_hash = hash_bytes(content)
+
+    try:
+        stored = save_upload(safe_filename, content, file.content_type)
+    except StorageError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    work_dir = tempfile.mkdtemp(prefix="obitree-")
+    working_path = os.path.join(work_dir, safe_filename)
+    with open(working_path, "wb") as f:
+        f.write(content)
 
     db_doc = models.Document(
         id=doc_id,
         filename=clean_filename,
-        file_path=file_path,
+        file_path=stored["local_path"],
         file_hash=file_hash,
+        storage_backend=stored["backend"],
+        storage_path=stored["path"],
+        image_url=stored["url"],
     )
     db.add(db_doc)
     db.commit()
     db.refresh(db_doc)
 
     try:
-        raw_ocr_text = extract_text_from_image(file_path)
-    except Exception as exc:
-        print(f"OCR warning: {exc}")
-        raw_ocr_text = clean_filename
+        try:
+            raw_ocr_text = extract_text_from_image(working_path)
+        except Exception as exc:
+            print(f"OCR warning: {exc}")
+            raw_ocr_text = clean_filename
 
-    extraction_results = extract_structured_claims(raw_ocr_text, image_path=file_path)
-    extracted_dicts = [item.model_dump() for item in extraction_results]
-    model_used = getattr(extraction_results, "model_name", "gemini-3.5-flash-lite")
-    api_key_failed = getattr(extraction_results, "api_key_failed", False)
+        extraction_results = extract_structured_claims(
+            raw_ocr_text, image_path=working_path
+        )
+        extracted_dicts = [item.model_dump() for item in extraction_results]
+        model_used = getattr(extraction_results, "model_name", "gemini-3.5-flash-lite")
+        api_key_failed = getattr(extraction_results, "api_key_failed", False)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
     db_extraction = models.DocumentExtraction(
         document_id=doc_id,
@@ -478,6 +497,7 @@ async def upload_document(
         "document_id": doc_id,
         "filename": clean_filename,
         "file_hash": file_hash,
+        "image_url": stored["url"],
         "record_hash": record_hash,
         "status": "READY_FOR_ATTESTATION",
         "raw_ocr_text": raw_ocr_text,
@@ -507,12 +527,17 @@ def get_document(doc_id: str, db: Session = Depends(get_db)):
 @router.post("/documents/{doc_id}/extract")
 async def extract_document(doc_id: str, db: Session = Depends(get_db)):
     document = db.query(models.Document).filter(models.Document.id == doc_id).first()
-    if not document or not document.file_path or not os.path.exists(document.file_path):
-        raise HTTPException(status_code=404, detail="Document or file not found")
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
 
-    raw_ocr_text = extract_text_from_image(document.file_path)
+    try:
+        file_path = materialize_document(document)
+    except StorageError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    raw_ocr_text = extract_text_from_image(file_path)
     extraction_results = extract_structured_claims(
-        raw_ocr_text, image_path=document.file_path
+        raw_ocr_text, image_path=file_path
     )
     extracted_dicts = [item.model_dump() for item in extraction_results]
     model_used = getattr(extraction_results, "model_name", "gemini-3.5-flash-lite")
@@ -629,11 +654,28 @@ async def create_attestation(
     if not canonical_row:
         raise HTTPException(status_code=404, detail="Canonical record not found")
 
+    configured_network = config.solana_network()
+    if attestation.network != configured_network:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"This backend verifies {configured_network} transactions, "
+                f"but the attestation claims {attestation.network}."
+            ),
+        )
+
+    wallet = (attestation.wallet or "").strip()
+    if not wallet:
+        raise HTTPException(
+            status_code=400,
+            detail="A connected wallet address is required to attest a record.",
+        )
+
     existing_wallet_seal = (
         db.query(models.Contribution)
         .filter(
             models.Contribution.document_id == attestation.document_id,
-            models.Contribution.wallet == (attestation.wallet or "unknown"),
+            models.Contribution.wallet == wallet,
             models.Contribution.verification_status == "VERIFIED",
         )
         .first()
@@ -653,7 +695,7 @@ async def create_attestation(
         expected_version=attestation.version,
         expected_file_hash=document.file_hash,
         expected_record_hash=canonical_row.record_hash,
-        expected_wallet=attestation.wallet,
+        expected_wallet=wallet,
     )
 
     status_str = "VERIFIED" if verification.get("verified") else "FAILED"
@@ -665,12 +707,13 @@ async def create_attestation(
     )
     if existing:
         existing.verification_status = status_str
+        existing.wallet = wallet
         contribution = existing
     else:
         contribution = models.Contribution(
             document_id=attestation.document_id,
             version_id=attestation.version,
-            wallet=attestation.wallet or "unknown",
+            wallet=wallet,
             tx_signature=attestation.transaction_signature,
             network=attestation.network,
             verification_status=status_str,
@@ -681,6 +724,19 @@ async def create_attestation(
         canonical_row.status = "ATTESTED"
 
     db.commit()
+
+    if not verification.get("verified"):
+        # The failed attempt is recorded for audit, but the response is a
+        # rejection so the UI can never present it as a valid attestation.
+        status_code = 502 if verification.get("status") == "RPC_ERROR" else 400
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "message": verification.get("message"),
+                "status": verification.get("status"),
+                "verification_details": verification,
+            },
+        )
 
     project = _project_for_document(db, attestation.document_id)
     document_payload = _document_payload(db, document, project)

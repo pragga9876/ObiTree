@@ -67,7 +67,7 @@ export default function HomePage({ onOpenProject }) {
         <p className="home-eyebrow">Obituaries, reconstructed on-chain</p>
         <h1>One family record. Two independent witnesses.</h1>
         <p className="home-deck">
-          Orbitree reads a printed obituary, reconstructs the family record, and hashes both the
+          ObiTree reads a printed obituary, reconstructs the family record, and hashes both the
           original scan and the extracted genealogy. Wallet one attests. Wallet two attests the
           same record independently. Both signatures are public on Solana.
         </p>
@@ -78,7 +78,7 @@ export default function HomePage({ onOpenProject }) {
         </div>
       </section>
 
-      <section className="home-workflow" aria-label="How Orbitree works">
+      <section className="home-workflow" aria-label="How ObiTree works">
         <article className="flow-step">
           <span className="flow-number">1</span>
           <h3>Upload the clipping</h3>
@@ -105,7 +105,7 @@ export default function HomePage({ onOpenProject }) {
         <div className="home-start-copy">
           <h2>Start a family record</h2>
           <p>
-            Upload an obituary photograph, scan or screenshot. Orbitree will show you the image
+            Upload an obituary photograph, scan or screenshot. ObiTree will show you the image
             beside the structured record so every extracted claim can be checked against the
             page.
           </p>

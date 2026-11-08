@@ -5,10 +5,6 @@ import { buildMemoTransaction, explorerTxUrl, formatAddress } from "../lib/solan
 import { submitAttestation } from "../lib/api";
 import { useWalletStatus } from "./walletStatus";
 
-function simulatedSignature(documentId) {
-  return `sim_orbitree_${documentId}_${Date.now().toString(36)}`;
-}
-
 export default function AttestationPanel({ document, onSealed }) {
   const { connection } = useConnection();
   const { publicKey, connected, sendTransaction } = useWallet();
@@ -102,34 +98,11 @@ export default function AttestationPanel({ document, onSealed }) {
     }
   };
 
-  const handleDemoSeal = async () => {
-    setSigning(true);
-    setError(null);
-    setResult(null);
-    setMessage("Recording a simulated Devnet attestation for rehearsal…");
-    try {
-      const signature = simulatedSignature(document.document_id);
-      const response = await submitAttestation({
-        documentId: document.document_id,
-        version: document.version || 1,
-        transactionSignature: signature,
-        wallet: address || "DemoWitnessWallet111111111111111111111111111",
-        network: "devnet",
-      });
-      setResult(response);
-      setMessage("Simulated attestation recorded. It will not appear on Solana Explorer.");
-      onSealed?.(response);
-    } catch (err) {
-      setError(err?.message || "The simulated attestation failed.");
-    } finally {
-      setSigning(false);
-    }
-  };
-
   const txUrl = explorerTxUrl(result?.transaction_signature);
   const zeroBalance = connected && currentBalance === 0;
 
   if (mySeal) {
+    const sealUrl = explorerTxUrl(mySeal.tx_signature);
     return (
       <div className="attest-panel attest-panel-done">
         <div className="attest-panel-head">
@@ -142,17 +115,10 @@ export default function AttestationPanel({ document, onSealed }) {
           </div>
           <span className="witness-check">✓</span>
         </div>
-        {explorerTxUrl(mySeal.tx_signature) ? (
-          <a
-            className="btn btn-ghost btn-sm"
-            href={explorerTxUrl(mySeal.tx_signature)}
-            target="_blank"
-            rel="noreferrer"
-          >
+        {sealUrl && (
+          <a className="btn btn-ghost btn-sm" href={sealUrl} target="_blank" rel="noreferrer">
             View this attestation ↗
           </a>
-        ) : (
-          <p className="seal-sim-note">This witness used a simulated attestation.</p>
         )}
       </div>
     );
@@ -232,15 +198,6 @@ export default function AttestationPanel({ document, onSealed }) {
         >
           {signing ? "Attesting…" : "Sign & attest on Devnet"}
         </button>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={handleDemoSeal}
-          disabled={signing}
-          title="Rehearse without Devnet SOL"
-        >
-          Simulate for rehearsal
-        </button>
       </div>
 
       {message && <div className="notice notice-info">{message}</div>}
@@ -251,27 +208,14 @@ export default function AttestationPanel({ document, onSealed }) {
           <div className="seal-result-head">
             <span className="seal-result-mark">✓</span>
             <div>
-              <strong>
-                {result.verification_status === "VERIFIED"
-                  ? "Attestation verified"
-                  : "Attestation rejected"}
-              </strong>
-              <span>
-                {result.verification_details?.status === "VERIFIED_SIMULATED"
-                  ? "Simulated signature recorded for rehearsal."
-                  : `Witnessed by ${formatAddress(result.wallet || address, 6)}`}
-              </span>
+              <strong>Attestation verified</strong>
+              <span>Witnessed by {formatAddress(result.wallet || address, 6)}</span>
             </div>
           </div>
-          {txUrl ? (
+          {txUrl && (
             <a className="btn btn-ghost btn-sm" href={txUrl} target="_blank" rel="noreferrer">
               View transaction on Solana Explorer ↗
             </a>
-          ) : (
-            <p className="seal-sim-note">
-              This is a simulated signature. A real attestation is created when a wallet signs
-              the memo on Devnet.
-            </p>
           )}
         </div>
       )}

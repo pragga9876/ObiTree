@@ -553,7 +553,7 @@ def build_project_graph(
     root_name = node_names.get(root_key, _display_name(project_subject) or "the deceased")
     if graph_edges:
         summary = (
-            f"Orbitree read {len(docs)} clipping{'s' if len(docs) != 1 else ''} "
+            f"ObiTree read {len(docs)} clipping{'s' if len(docs) != 1 else ''} "
             f"from {len(contributors) or 0} contributor"
             f"{'s' if len(contributors) != 1 else ''} and reconstructed "
             f"{len(graph_edges)} relationship"
@@ -573,7 +573,7 @@ def build_project_graph(
             )
     else:
         summary = (
-            f"Orbitree has archived {len(docs)} clipping"
+            f"ObiTree has archived {len(docs)} clipping"
             f"{'s' if len(docs) != 1 else ''} for {root_name}, but no family "
             "relationships could be reconstructed yet. Add another clipping or "
             "review the extracted text."

@@ -63,7 +63,7 @@ export default function ProvenancePanel({ graph, selection, onOpenDocument }) {
           <h3>Every line has a source</h3>
         </div>
         <p className="provenance-intro">
-          Select a seal or a chain link in the family ledger. Orbitree will show the verbatim
+          Select a seal or a chain link in the family ledger. ObiTree will show the verbatim
           line, the clipping it came from, the contributing wallet and the Solana signature that
           sealed it.
         </p>

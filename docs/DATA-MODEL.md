@@ -1,6 +1,6 @@
-# Orbitree Data Model
+# ObiTree Data Model
 
-SQLite tables, defined in `backend/app/models.py`.
+SQLAlchemy tables, defined in `backend/app/models.py`. PostgreSQL in production, SQLite for local development.
 
 ## `projects`
 
@@ -33,7 +33,10 @@ Append-only membership of a clipping in a chronicle. `id` is the chain append or
 | --- | --- | --- |
 | `id` | string PK | `doc_<hex>` |
 | `filename` | string | Sanitized original name |
-| `file_path` | string | Stored upload path |
+| `file_path` | string | Local working path (nullable in production) |
+| `storage_backend` | string | `supabase` or `local` |
+| `storage_path` | string | Object key inside the Supabase bucket |
+| `image_url` | string | Public or signed URL captured at upload |
 | `file_hash` | string | `SHA-256(file bytes)` |
 | `created_at` | datetime | Server default |
 
@@ -98,10 +101,10 @@ One sealed (or failed) attestation per contribution.
 | `id` | integer PK | |
 | `document_id` | string | References `documents.id` |
 | `version_id` | integer | Canonical record version |
-| `wallet` | string | Base58 wallet or `unknown` |
-| `tx_signature` | string unique | Solana signature or `sim_...` demo signature |
-| `network` | string | Defaults to `devnet` |
-| `verification_status` | string | `PENDING`, `VERIFIED`, `FAILED` |
+| `wallet` | string | Base58 wallet that signed the transaction |
+| `tx_signature` | string unique | Real Solana transaction signature |
+| `network` | string | Must match `SOLANA_NETWORK`, defaults to `devnet` |
+| `verification_status` | string | `VERIFIED` or `FAILED`; never accepted for simulated signatures |
 | `created_at` | datetime | Server default |
 
 ## Derived, not stored

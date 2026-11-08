@@ -315,7 +315,7 @@ export default function FamilyTree({ graph, selection, onSelect }) {
           <rect width={width} height={height} fill="url(#plateGlow)" />
 
           <text className="plate-overline" x={width / 2} y="48" textAnchor="middle">
-            ORBITREE · CHAIN OF EVIDENCE
+            ObiTree · Chain of Evidence
           </text>
 
           {edges.map((edge) => {
