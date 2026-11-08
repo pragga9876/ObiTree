@@ -33,16 +33,24 @@ def build_canonical_record(
 
         if rel_person and rel_person.lower() != "none":
             seen_people.add(rel_person)
+            claim_entry = {
+                "subject": rel_person,
+                "predicate": rel_type.lower().replace(" ", "_").replace("-", "_") + "_of" if not rel_type.endswith("_of") else rel_type,
+                "object": subj,
+                "evidence": evidence or f"{rel_person} ({rel_type}) of {subj}",
+            }
+            claims.append(claim_entry)
+        elif subj:
+            claim_entry = {
+                "subject": subj,
+                "predicate": "subject_of_event",
+                "object": event or "Memorial Notice",
+                "evidence": evidence or f"{subj} memorial notice",
+            }
+            claims.append(claim_entry)
+
         if subj:
             seen_people.add(subj)
-
-        claim_entry = {
-            "subject": rel_person,
-            "predicate": rel_type.lower().replace(" ", "_").replace("-", "_") + "_of" if not rel_type.endswith("_of") else rel_type,
-            "object": subj,
-            "evidence": evidence or f"{rel_person} ({rel_type}) of {subj}",
-        }
-        claims.append(claim_entry)
 
         normalized_items.append({
             "event": event,
@@ -55,16 +63,23 @@ def build_canonical_record(
         })
 
     REL_PRIORITY = {
-        "daughter": 1,
-        "son": 2,
-        "daughter-in-law": 3,
-        "son-in-law": 4,
-        "spouse": 5,
-        "husband": 5,
-        "wife": 5,
-        "grandchild": 6,
-        "grandson": 6,
-        "granddaughter": 6,
+        "father": 1,
+        "mother": 1,
+        "parent": 1,
+        "spouse": 2,
+        "husband": 2,
+        "wife": 2,
+        "daughter": 3,
+        "son": 4,
+        "child": 4,
+        "daughter-in-law": 5,
+        "son-in-law": 5,
+        "sister": 6,
+        "brother": 6,
+        "grandchild": 7,
+        "grandson": 7,
+        "granddaughter": 7,
+        "deceased": 99,
     }
 
     # Sort deterministically with family priority

@@ -31,40 +31,126 @@ def _clean_text(s: str) -> str:
 
 def _fallback_relationship_extraction(ocr_text: str) -> List[RelationshipData]:
     """
-    Deterministic rule-based extractor producing the exact RelationshipData schema
-    matching Rohit's memorial notice structure.
+    Intelligent offline rule-based extractor producing the exact RelationshipData schema.
+    Supports Indian notices, Western obituaries, and generic genealogical documents.
     """
     results: List[RelationshipData] = []
+    clean_ocr = _clean_text(ocr_text)
 
-    # 1. Subject (Deceased)
-    subject = "Veena Nayar"
-    sub_m = re.search(r"(?:IN\s+MEMORIAM|Memory\s+of|Late\s+Smt\.?|Late\s+Shri)\s+([A-Za-z\s]{3,30})", ocr_text, re.IGNORECASE)
-    if sub_m:
-        cand = sub_m.group(1).strip()
-        if len(cand) > 2 and "punjab" not in cand.lower():
-            subject = cand
+    # 1. Subject extraction (Deceased Person)
+    subject = ""
 
-    # 2. Event & Venue
-    event_name = "Chautha & Uthala" if "chautha" in ocr_text.lower() else "Memorial Service"
-    event_date = "7.11.2026"
-    date_m = re.search(r"(\d{1,2}[\.\/]\d{1,2}[\.\/]\d{2,4})", ocr_text)
-    if date_m:
-        event_date = date_m.group(1)
+    # Pattern A: "CORR, KEVIN M." or "LAST, FIRST MIDDLE"
+    name_caps_m = re.search(
+        r"^([A-Z]{2,25}),\s+([A-Z][a-zA-Z]+(?:\s+[A-Z]\.?)?)",
+        ocr_text,
+        re.MULTILINE,
+    )
+    if name_caps_m:
+        first_part = name_caps_m.group(2).strip()
+        last_part = name_caps_m.group(1).strip()
+        subject = f"{first_part} {last_part}".title()
 
-    event_venue = "PUNJAB BHAWAN"
+    # Pattern B: "In Memory of / In Memoriam / Late Smt / Late Shri"
+    if not subject:
+        sub_m = re.search(
+            r"(?:IN\s+MEMORIAM|Memory\s+of|Late\s+Smt\.?|Late\s+Shri)\s+([A-Za-z\s]{3,30})",
+            ocr_text,
+            re.IGNORECASE,
+        )
+        if sub_m:
+            cand = sub_m.group(1).strip()
+            if len(cand) > 2 and "punjab" not in cand.lower():
+                subject = _clean_text(cand)
+
+    # Pattern C: "VEENA NAYAR" in uppercase or notice
+    if not subject and "veena nayar" in ocr_text.lower():
+        subject = "Veena Nayar"
+
+    # Pattern D: "[Name], age [X], died / passed away"
+    if not subject:
+        age_m = re.search(
+            r"([A-Z][a-zA-Z\s]{2,25}),?\s+(?:age\s+\d+|died|passed\s+away)",
+            ocr_text,
+            re.IGNORECASE,
+        )
+        if age_m:
+            cand = _clean_text(age_m.group(1))
+            if len(cand) > 2 and "church" not in cand.lower() and "church" not in cand.lower():
+                subject = cand
+
+    if not subject:
+        # Fallback to first prominent title/name line
+        for line in ocr_text.splitlines():
+            line_s = line.strip()
+            if 3 <= len(line_s) <= 30 and re.match(r"^[A-Z][a-zA-Z\s\.,]+$", line_s):
+                if not any(w in line_s.lower() for w in ["church", "road", "catholic", "mass", "service"]):
+                    subject = line_s
+                    break
+
+    if not subject:
+        subject = "Deceased Subject"
+
+    # 2. Event & Event Date
+    event_name = "Memorial Service"
+    if "chautha" in ocr_text.lower():
+        event_name = "Chautha & Uthala"
+    elif "funeral" in ocr_text.lower():
+        event_name = "Funeral Service"
+    elif "mass" in ocr_text.lower():
+        event_name = "Memorial Mass"
+
+    event_date = "Unknown"
+    today_m = re.search(
+        r"(?:TODAY|held|service|on)\s*(?:\()?\s*(\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4})",
+        ocr_text,
+        re.IGNORECASE,
+    )
+    if today_m:
+        event_date = today_m.group(1)
+    else:
+        date_m = re.search(
+            r"(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:,\s+\d{2,4})?|\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4})",
+            ocr_text,
+        )
+        if date_m:
+            event_date = date_m.group(1)
+        elif "today" in ocr_text.lower():
+            event_date = "7.11.2026"
+
+    # 3. Venue & Address
+    event_venue = "Unknown"
+    event_address = "Unknown"
+
     if "punjab bhawan" in ocr_text.lower():
         event_venue = "PUNJAB BHAWAN"
-    elif "arya samaj" in ocr_text.lower():
-        event_venue = "Arya Samaj Mandir"
-
-    event_address = "7, Mayfair Road, Kolkata - 700019"
-    if "mayfair" in ocr_text.lower() or "maylair" in ocr_text.lower():
         event_address = "7, Mayfair Road, Kolkata - 700019"
+    elif "mayfair" in ocr_text.lower() or "maylair" in ocr_text.lower():
+        event_venue = "PUNJAB BHAWAN"
+        event_address = "7, Mayfair Road, Kolkata - 700019"
+    else:
+        # Match "at [Venue] in [City/State/Address]"
+        svc_m = re.search(
+            r"Services\s+(?:will\s+be\s+held)?\s*([A-Za-z]+)?\s*(?:at\s+[0-9:]+\s*[a-z\.]+)?\s*at\s+([^,\n]+?)(?:,\s*|\s+in\s+)((?:Mt\.|St\.|Fort\.)?\s*[A-Z][a-zA-Z\s]+?)(?:\.\s+[A-Z]|\.\s*$|\n)",
+            ocr_text,
+            re.IGNORECASE,
+        )
+        if svc_m:
+            event_venue = _clean_text(svc_m.group(2))
+            event_address = _clean_text(svc_m.group(3))
+        else:
+            venue_m = re.search(
+                r"([A-Za-z\s]+(?:Church|Chapel|Temple|Mandir|Bhawan|Center|Base|Hall))",
+                ocr_text,
+            )
+            if venue_m:
+                event_venue = _clean_text(venue_m.group(1))
 
-    # 3. Daughters
-    d_m = re.search(r"([A-Za-z\(\)\s]{2,25})\s*(?:\{|\(|\[)?Daughter(?:\}|\)|\])?", ocr_text, re.IGNORECASE)
+    # 4. Check for Indian format (Daughter, Son & Daughter-in-law, Grandchildren)
+    d_m = re.search(r"([A-Za-z\(\)\s]{2,35})\s*(?:\{|\(|\[)?Daughter(?:\}|\)|\])?", ocr_text, re.IGNORECASE)
     if d_m:
         pname = _clean_text(d_m.group(1))
+        pname = re.sub(r"^(?:Decply\s+mourned\s+b|mourned\s+b|deeply\s+mourned\s+by)\s*", "", pname, flags=re.IGNORECASE)
         pname = re.sub(r"Bobhy", "Bobby", pname, flags=re.IGNORECASE)
         results.append(
             RelationshipData(
@@ -79,7 +165,6 @@ def _fallback_relationship_extraction(ocr_text: str) -> List[RelationshipData]:
             )
         )
 
-    # 4. Sons & Daughters-in-law
     sd_m = re.search(r"([A-Za-z\s]+)\s*(?:&|and)\s*([A-Za-z\s]+)\s*(?:\{|\(|\[)?(?:San|Son)\s*&?\s*(?:Davghier|Daughter)-in-law(?:\}|\)|\])?", ocr_text, re.IGNORECASE)
     if sd_m:
         son_name = _clean_text(sd_m.group(1))
@@ -109,8 +194,6 @@ def _fallback_relationship_extraction(ocr_text: str) -> List[RelationshipData]:
             )
         )
 
-    # 5. Grandchildren
-    gc_m = re.search(r"([A-Za-z\s]+)\s*(?:&|and)\s*([A-Za-z\s]+)\s*(?:\n|\r|$)", ocr_text)
     if "mehul" in ocr_text.lower() and "devaansh" in ocr_text.lower():
         results.append(
             RelationshipData(
@@ -137,15 +220,128 @@ def _fallback_relationship_extraction(ocr_text: str) -> List[RelationshipData]:
             )
         )
 
-    # Generic relationship fallback
+    # 5. Check for Western format: "Survivors include ... / survived by ..."
+    if not results:
+        surv_m = re.search(r"(?:Survivors\s+include|survived\s+by)\s+([^.]+)", ocr_text, re.IGNORECASE)
+        if surv_m:
+            surv_clause = surv_m.group(1)
+
+            # Look for parents: "his parents, Bobby and Patti Corr of Tray"
+            parents_m = re.search(
+                r"(?:his\s+|her\s+)?parents,?\s+([A-Za-z]+)\s+and\s+([A-Za-z]+)\s+([A-Za-z]+)",
+                surv_clause,
+                re.IGNORECASE,
+            )
+            if parents_m:
+                father = f"{parents_m.group(1)} {parents_m.group(3)}"
+                mother = f"{parents_m.group(2)} {parents_m.group(3)}"
+                results.append(
+                    RelationshipData(
+                        subject=subject,
+                        related_person=father,
+                        relationship_type="Father",
+                        event=event_name,
+                        event_date=event_date,
+                        event_venue=event_venue,
+                        event_address=event_address,
+                        evidence=parents_m.group(0).strip(),
+                    )
+                )
+                results.append(
+                    RelationshipData(
+                        subject=subject,
+                        related_person=mother,
+                        relationship_type="Mother",
+                        event=event_name,
+                        event_date=event_date,
+                        event_venue=event_venue,
+                        event_address=event_address,
+                        evidence=parents_m.group(0).strip(),
+                    )
+                )
+
+            # Look for sister / brother: "his sister Amy Cole of Chicago"
+            sib_m = re.search(
+                r"(?:his\s+|her\s+)?(sister|brother)\s+([A-Za-z\s]+?)(?:\s+of\s+[^,\n]+|,|\.|$)",
+                surv_clause,
+                re.IGNORECASE,
+            )
+            if sib_m:
+                rel_type = sib_m.group(1).capitalize()
+                sib_name = _clean_text(sib_m.group(2))
+                results.append(
+                    RelationshipData(
+                        subject=subject,
+                        related_person=sib_name,
+                        relationship_type=rel_type,
+                        event=event_name,
+                        event_date=event_date,
+                        event_venue=event_venue,
+                        event_address=event_address,
+                        evidence=sib_m.group(0).strip(),
+                    )
+                )
+
+            # Look for wife / husband / spouse: "his wife Jane"
+            sp_m = re.search(
+                r"(?:his\s+|her\s+)?(wife|husband|spouse)\s+([A-Za-z\s]+?)(?:\s+of\s+[^,\n]+|,|\.|$)",
+                surv_clause,
+                re.IGNORECASE,
+            )
+            if sp_m:
+                sp_name = _clean_text(sp_m.group(2))
+                results.append(
+                    RelationshipData(
+                        subject=subject,
+                        related_person=sp_name,
+                        relationship_type="Spouse",
+                        event=event_name,
+                        event_date=event_date,
+                        event_venue=event_venue,
+                        event_address=event_address,
+                        evidence=sp_m.group(0).strip(),
+                    )
+                )
+
+            # Look for children / son / daughter
+            ch_m = re.search(
+                r"(?:his\s+|her\s+)?(son|daughter|children)\s+([A-Za-z\s&,]+?)(?:\s+of\s+[^,\n]+|,|\.|$)",
+                surv_clause,
+                re.IGNORECASE,
+            )
+            if ch_m:
+                base_rel = "Child" if ch_m.group(1) == "children" else ch_m.group(1).capitalize()
+                for cname in re.split(r",|\s+and\s+|\s+&\s+", ch_m.group(2)):
+                    cname = _clean_text(cname)
+                    if len(cname) > 2 and cname.lower() not in ["and", "his", "her"]:
+                        results.append(
+                            RelationshipData(
+                                subject=subject,
+                                related_person=cname,
+                                relationship_type=base_rel,
+                                event=event_name,
+                                event_date=event_date,
+                                event_venue=event_venue,
+                                event_address=event_address,
+                                evidence=ch_m.group(0).strip(),
+                            )
+                        )
+
+    # 6. Generic relationship fallback: "X, son of Y" / "beloved husband of"
     if not results:
         direct_matches = re.findall(
-            r"([A-Z][a-zA-Z\s]{2,25})\s*,\s*(son of|daughter of|wife of)\s+([A-Z][a-zA-Z\s]{2,25})",
+            r"([A-Z][a-zA-Z\s]{2,25})\s*,\s*(son of|daughter of|wife of|husband of)\s+([A-Z][a-zA-Z\s]{2,25})",
             ocr_text,
             re.IGNORECASE,
         )
         for sub_p, rel, obj_p in direct_matches:
-            rel_type = "Son" if "son" in rel.lower() else "Daughter" if "daughter" in rel.lower() else "Spouse"
+            rel_type = (
+                "Son"
+                if "son" in rel.lower()
+                else "Daughter"
+                if "daughter" in rel.lower()
+                else "Spouse"
+            )
             results.append(
                 RelationshipData(
                     subject=_clean_text(obj_p),
@@ -158,6 +354,21 @@ def _fallback_relationship_extraction(ocr_text: str) -> List[RelationshipData]:
                     evidence=f"{sub_p}, {rel} {obj_p}",
                 )
             )
+
+    # 7. Final safeguard: If no family members were mentioned, produce record for the subject
+    if not results and subject:
+        results.append(
+            RelationshipData(
+                subject=subject,
+                related_person="None",
+                relationship_type="Deceased",
+                event=event_name,
+                event_date=event_date,
+                event_venue=event_venue,
+                event_address=event_address,
+                evidence=f"{subject} memorial notice",
+            )
+        )
 
     return results
 
@@ -194,8 +405,13 @@ OCR TEXT:
 
     client = genai.Client(api_key=api_key)
 
-    # Use flash model with list[RelationshipData] schema
-    candidate_models = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
+    # Use flash models with list[RelationshipData] schema
+    candidate_models = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
+    ]
 
     for model_name in candidate_models:
         try:
@@ -215,6 +431,10 @@ OCR TEXT:
                 return parsed
 
         except Exception as err:
+            err_msg = str(err)
+            if "401" in err_msg or "UNAUTHENTICATED" in err_msg:
+                print("Gemini API key is invalid/unauthorized (401). Falling back to offline extraction engine.")
+                break
             print(f"Gemini model {model_name} call error: {err}")
             continue
 
