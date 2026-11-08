@@ -1,3 +1,5 @@
+# frontend : https://obitree.vercel.app/
+# backend : https://obitree.onrender.com/
 # Obitree
 
 **The Family Chronicle.** ObiTree reads old obituaries and memorial notices, reconstructs the family tree across independent clippings, and seals every contribution on Solana — so a family record cannot be quietly rewritten.
