@@ -100,13 +100,14 @@ async def upload_document(
     # 5. LLM structured claims extraction matching RelationshipData schema
     extraction_results = extract_structured_claims(raw_ocr_text)
     extracted_dicts = [item.model_dump() for item in extraction_results]
+    model_used = getattr(extraction_results, "model_name", "gemini-3.5-flash-lite")
 
     # Save extraction to DB
     db_extraction = models.DocumentExtraction(
         document_id=doc_id,
         raw_ocr_text=raw_ocr_text,
         extraction_json=json.dumps(extracted_dicts),
-        model_name="gemini-3.5-flash-lite",
+        model_name=model_used,
         prompt_version="v2.0",
     )
     db.add(db_extraction)
@@ -146,6 +147,8 @@ async def upload_document(
         "extracted_data": canonical_record["extracted_data"],
         "canonical_record": canonical_record,
         "memo_payload": memo_text,
+        "model_name": model_used,
+        "api_key_failed": getattr(extraction_results, "api_key_failed", False),
         "message": "Document processed and canonical record created",
     }
 
@@ -165,13 +168,14 @@ async def extract_document(
     raw_ocr_text = extract_text_from_image(doc.file_path)
     extraction_results = extract_structured_claims(raw_ocr_text)
     extracted_dicts = [item.model_dump() for item in extraction_results]
+    model_used = getattr(extraction_results, "model_name", "gemini-3.5-flash-lite")
 
     # Update extraction
     db_extraction = models.DocumentExtraction(
         document_id=doc_id,
         raw_ocr_text=raw_ocr_text,
         extraction_json=json.dumps(extracted_dicts),
-        model_name="gemini-3.5-flash-lite",
+        model_name=model_used,
         prompt_version="v2.0",
     )
     db.add(db_extraction)
@@ -206,6 +210,8 @@ async def extract_document(
         "record_hash": record_hash,
         "extracted_data": canonical_record["extracted_data"],
         "canonical_record": canonical_record,
+        "model_name": model_used,
+        "api_key_failed": getattr(extraction_results, "api_key_failed", False),
         "status": "READY_FOR_ATTESTATION",
     }
 

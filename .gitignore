@@ -24,3 +24,4 @@ npm-debug.log*
 
 # System
 .DS_Store
+*.log

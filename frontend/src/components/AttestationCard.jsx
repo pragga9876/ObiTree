@@ -51,6 +51,8 @@ export default function AttestationCard({ documentData }) {
     canonical_record,
     memo_payload,
     raw_ocr_text,
+    model_name,
+    api_key_failed,
   } = documentData;
 
   const extractedList = documentData.extracted_data || canonical_record?.extracted_data || [];
@@ -155,7 +157,18 @@ export default function AttestationCard({ documentData }) {
       <div className="card-header">
         <div>
           <h2 className="card-title">Document Ready for Attestation</h2>
-          <span className="doc-id-pill">ID: {document_id}</span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
+            <span className="doc-id-pill">ID: {document_id}</span>
+            {api_key_failed && (
+              <span
+                className="doc-id-pill"
+                style={{ background: '#fef3c7', color: '#92400e', borderColor: '#fde68a' }}
+                title={model_name || 'Gemini API key failed or is missing'}
+              >
+                Offline Engine
+              </span>
+            )}
+          </div>
         </div>
         <span className="badge-ready">READY_FOR_ATTESTATION</span>
       </div>

@@ -1,10 +1,13 @@
 import os
 import re
 import json
+import logging
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from ..config import GEMINI_API_KEY
+
+logger = logging.getLogger("paperroots.llm_service")
 
 try:
     from google import genai
@@ -12,6 +15,24 @@ try:
 except ImportError:
     genai = None
     types = None
+
+
+class ExtractionResult(list):
+    """
+    Subclass of list carrying metadata about which model was used
+    and whether an API key failure occurred.
+    """
+    def __init__(
+        self,
+        items,
+        model_name: str = "unknown",
+        api_key_failed: bool = False,
+        failure_reason: str = "",
+    ):
+        super().__init__(items)
+        self.model_name = model_name
+        self.api_key_failed = api_key_failed
+        self.failure_reason = failure_reason
 
 
 class RelationshipData(BaseModel):
@@ -373,15 +394,37 @@ def _fallback_relationship_extraction(ocr_text: str) -> List[RelationshipData]:
     return results
 
 
-def extract_structured_claims(ocr_text: str) -> List[RelationshipData]:
+def extract_structured_claims(ocr_text: str) -> ExtractionResult:
     """
     Extracts structured relationships matching Rohit's exact RelationshipData schema.
     Uses Gemini LLM with structured output or fallback.
+    Logs API key failures explicitly with full diagnostic details whenever they occur.
     """
     api_key = GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
 
-    if not api_key or not genai:
-        return _fallback_relationship_extraction(ocr_text)
+    if not api_key:
+        logger.warning(
+            "[LLMService] ⚠️ GEMINI_API_KEY is not configured in backend/.env. "
+            "Running high-accuracy offline extraction engine."
+        )
+        return ExtractionResult(
+            _fallback_relationship_extraction(ocr_text),
+            model_name="offline-rule-extractor (no-api-key)",
+            api_key_failed=True,
+            failure_reason="GEMINI_API_KEY is empty/unset in backend/.env",
+        )
+
+    if not genai:
+        logger.warning(
+            "[LLMService] ⚠️ 'google-genai' library is not available. "
+            "Running high-accuracy offline extraction engine."
+        )
+        return ExtractionResult(
+            _fallback_relationship_extraction(ocr_text),
+            model_name="offline-rule-extractor (google-genai-missing)",
+            api_key_failed=False,
+            failure_reason="google-genai library is missing",
+        )
 
     prompt = f"""You are an expert information extraction system for PaperRoots.
 Read the following OCR text from a newspaper memorial / obituary clipping.
@@ -428,14 +471,53 @@ OCR TEXT:
             data_list = json.loads(response.text)
             parsed = [RelationshipData.model_validate(item) for item in data_list]
             if parsed:
-                return parsed
+                logger.info(f"[LLMService] Gemini extraction succeeded using model: {model_name}")
+                return ExtractionResult(parsed, model_name=model_name)
 
         except Exception as err:
             err_msg = str(err)
-            if "401" in err_msg or "UNAUTHENTICATED" in err_msg:
-                print("Gemini API key is invalid/unauthorized (401). Falling back to offline extraction engine.")
-                break
-            print(f"Gemini model {model_name} call error: {err}")
-            continue
+            is_auth_error = any(
+                code in err_msg.upper()
+                for code in [
+                    "401",
+                    "403",
+                    "UNAUTHENTICATED",
+                    "PERMISSION_DENIED",
+                    "ACCESS_TOKEN_TYPE_UNSUPPORTED",
+                    "API_KEY_INVALID",
+                    "INVALID_ARGUMENT",
+                    "API KEY NOT VALID",
+                    "CREDENTIALS",
+                ]
+            )
+            if is_auth_error:
+                clean_err_snippet = err_msg.replace("\n", " ")[:70]
+                logger.error(
+                    "\n"
+                    "╔══════════════════════════════════════════════════════════════════════════╗\n"
+                    "║ ❌ [GEMINI API KEY FAILURE] Authentication or Authorization Failed       ║\n"
+                    "╠══════════════════════════════════════════════════════════════════════════╣\n"
+                    f"║ Model:   {model_name:<64}║\n"
+                    f"║ Error:   {clean_err_snippet:<64}║\n"
+                    "║ Cause:   The GEMINI_API_KEY configured in backend/.env is invalid,       ║\n"
+                    "║          expired, unauthorized, or an unsupported token type.            ║\n"
+                    "║ Action:  Gracefully falling back to high-accuracy offline extractor.    ║\n"
+                    "║ Fix:     Generate an API key at https://aistudio.google.com/ and set    ║\n"
+                    "║          GEMINI_API_KEY in backend/.env                                  ║\n"
+                    "╚══════════════════════════════════════════════════════════════════════════╝"
+                )
+                return ExtractionResult(
+                    _fallback_relationship_extraction(ocr_text),
+                    model_name=f"offline-rule-extractor (Gemini API key failed: 401 UNAUTHENTICATED)",
+                    api_key_failed=True,
+                    failure_reason=err_msg,
+                )
+            else:
+                logger.warning(f"[LLMService] Gemini model {model_name} call error: {err}")
+                continue
 
-    return _fallback_relationship_extraction(ocr_text)
+    logger.warning("[LLMService] All Gemini candidate models failed. Falling back to offline extraction engine.")
+    return ExtractionResult(
+        _fallback_relationship_extraction(ocr_text),
+        model_name="offline-rule-extractor (all-gemini-models-failed)",
+    )
